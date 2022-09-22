@@ -1,0 +1,12 @@
+#!/bin/sh
+set -e
+set -x
+
+for h in $(dpkg -L ocl-icd-dev | grep '\.h$' | sed s%/usr/include/%%)
+do
+	for std in '' 100 110 120 200 210 220 300
+	do
+		echo "#include <$h>" | gcc -x c ${std:+-DCL_TARGET_OPENCL_VERSION=$std} -c -
+		echo "#include <$h>" | g++ -x c++ ${std:+-DCL_TARGET_OPENCL_VERSION=$std} -c -
+	done
+done

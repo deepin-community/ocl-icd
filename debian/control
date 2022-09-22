@@ -1,0 +1,99 @@
+Source: ocl-icd
+Section: libs
+Priority: optional
+Maintainer: Debian OpenCL Maintainers <pkg-opencl-devel@lists.alioth.debian.org>
+Uploaders: Vincent Danjean <vdanjean@debian.org>,
+Build-Depends: debhelper-compat (= 13),
+               ruby:any,
+               faketime,
+               autoconf (>= 2.68),
+               automake,
+               libtool,
+               asciidoc,
+               xmlto,
+               dpkg-dev (>= 1.17.0)
+Rules-Requires-Root: no
+Standards-Version: 4.5.1
+Homepage: https://github.com/OCL-dev/ocl-icd
+Vcs-Browser: https://salsa.debian.org/opencl-team/ocl-icd
+Vcs-Git: https://salsa.debian.org/opencl-team/ocl-icd.git
+
+Package: ocl-icd-libopencl1
+Architecture: any
+Multi-Arch: same
+Depends: ${shlibs:Depends},
+         ${misc:Depends}
+# To promote to an Recommends once an ICD is in main
+Suggests: opencl-icd
+Pre-Depends: ${misc:Pre-Depends}
+Conflicts: libopencl1,
+           amd-app,
+           nvidia-libopencl1-dev
+Provides: libopencl1,
+          libopencl-1.1-1,
+          libopencl-1.2-1,
+          libopencl-2.0-1,
+          libopencl-2.1-1,
+          libopencl-2.2-1,
+          libopencl-3.0-1,
+Replaces: libopencl1,
+          amd-app,
+          nvidia-libopencl1-dev
+Description: Generic OpenCL ICD Loader
+ OpenCL (Open Computing Language) is a multivendor open standard for
+ general-purpose parallel programming of heterogeneous systems that include
+ CPUs, GPUs and other processors.
+ .
+ This package contains an installable client driver loader (ICD Loader)
+ library that can be used to load any (free or non-free) installable client
+ driver (ICD) for OpenCL. It acts as a demultiplexer so several ICD can
+ be installed and used together.
+
+Package: ocl-icd-opencl-dev
+Architecture: any
+Multi-Arch: same
+Section: libdevel
+Depends: ${shlibs:Depends},
+         ${misc:Depends},
+         opencl-c-headers | opencl-headers,
+         opencl-clhpp-headers | opencl-headers,
+         ocl-icd-libopencl1 (= ${binary:Version})
+Recommends: libgl1-mesa-dev | libgl-dev,
+Pre-Depends: ${misc:Pre-Depends}
+Breaks: ocl-icd-libopencl1 (<< 2.1.3-5~),
+        nvidia-libopencl1 (<< 305~),
+        amd-libopencl1 (<< 1:13.4-4~)
+Conflicts: opencl-dev
+Provides: opencl-dev
+Replaces: opencl-dev,
+          ocl-icd-libopencl1 (<< 2.1.3-5~),
+          nvidia-libopencl1 (<< 305~),
+          amd-libopencl1 (<< 1:13.4-4~)
+Description: OpenCL development files
+ OpenCL (Open Computing Language) is a multivendor open standard for
+ general-purpose parallel programming of heterogeneous systems that include
+ CPUs, GPUs and other processors.
+ .
+ This package provides the development files: headers and libraries.
+ .
+ It also ensures that the ocl-icd ICD loader is installed so its additional
+ features (compared to the OpenCL norm) can be used: .pc file, ability to
+ select an ICD without root privilege, etc.
+
+Package: ocl-icd-dev
+Architecture: any
+Multi-Arch: same
+Section: libdevel
+Depends: opencl-c-headers, ${misc:Depends}
+Description: Development files to build an OpenCL ICD
+ OpenCL (Open Computing Language) is a multivendor open standard for
+ general-purpose parallel programming of heterogeneous systems that include
+ CPUs, GPUs and other processors.
+ .
+ This package provides a header file that allows an OpenCL implementation
+ to build an installable client driver (ICD). With an ICD, an OpenCL
+ implementation can be used by any OpenCL program without the need
+ to link the program to the specific OpenCL implementation.
+ .
+ For building OpenCL applications, install the ocl-icd-opencl-dev package
+ instead.

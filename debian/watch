@@ -1,0 +1,6 @@
+version=4
+
+opts=uversionmangle=s/-((alpha|beta)\d*)/~$1/,\
+  filenamemangle=s%(?:.*?)?v@ANY_VERSION@\.tar\.gz%ocl-icd-$1.tar.gz% \
+  https://github.com/OCL-DEV/ocl-icd/releases/ \
+  (?:.*?/)?v@ANY_VERSION@\.tar\.gz

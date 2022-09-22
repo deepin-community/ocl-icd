@@ -1,0 +1,14 @@
+Author: Andreas Beckmann <anbe@debian.org>
+Description: fix some typos found by lintian
+
+--- a/doc/libOpenCL.7.txt.in
++++ b/doc/libOpenCL.7.txt.in
+@@ -15,7 +15,7 @@ libOpenCL, libOpenCL.so - OCL-ICD implem
+ DESCRIPTION
+ -----------
+ `libOpenCL.so` is the library linked by OpenCL programs. It does not contains
+-any OpenCL implementation itself, but merly act as a dispatcher to real OpenCL
++any OpenCL implementation itself, but merely act as a dispatcher to real OpenCL
+ implementations provided as OpenCL Installable Client Driver (ICD).
+ An ICD loader should be able to load ICDs provided by any vendors.
+ 
