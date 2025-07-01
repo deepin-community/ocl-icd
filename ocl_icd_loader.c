@@ -57,24 +57,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 int debug_ocl_icd_mask=0;
 
-typedef cl_uint cl_layer_info;
-typedef cl_uint cl_layer_api_version;
-#define CL_LAYER_API_VERSION 0x4240
-#define CL_LAYER_API_VERSION_100 100
-
-typedef __typeof__(clGetPlatformInfo) *clGetPlatformInfo_fn;
-CL_API_ENTRY typedef cl_int (CL_API_CALL *clGetLayerInfo_fn)(
-    cl_layer_info  param_name,
-    size_t         param_value_size,
-    void          *param_value,
-    size_t        *param_value_size_ret);
-
-CL_API_ENTRY typedef cl_int (CL_API_CALL *clInitLayer_fn)(
-    cl_uint                         num_entries,
-    const struct _cl_icd_dispatch  *target_dispatch,
-    cl_uint                        *num_entries_out,
-    const struct _cl_icd_dispatch **layer_dispatch);
-
 static inline void dump_vendor_icd(const char* info, const struct vendor_icd *v) {
   debug(D_DUMP, "%s %p={ num=%i, handle=%p, f=%p}\n", info,
 	v, v->num_platforms, v->dl_handle, v->ext_fn_ptr);
@@ -177,28 +159,56 @@ static char* _clerror2string (cl_int error) {
 #endif
 }
 
-static inline int _string_end_with_icd(const char* str) {
+static inline int _string_end_with(const char* str, const char* suffix) {
   size_t len = strlen(str);
-  if( len<5 || strcmp(str + len - 4, ".icd" ) != 0 ) {
+  size_t len_suff = strlen(suffix);
+  if (len < len_suff + 1 || strcmp(str + len - len_suff, suffix) != 0) {
     return 0;
   }
   return 1;
+}
+
+#define ICD_EXTENSION ".icd"
+#define LAY_EXTENSION ".lay"
+
+static inline int _string_end_with_icd(const char* str) {
+  return _string_end_with(str, ICD_EXTENSION);
+}
+
+static inline int _string_end_with_lay(const char* str) {
+  return _string_end_with(str, LAY_EXTENSION);
 }
 
 static inline int _string_with_slash(const char* str) {
   return strchr(str, '/') != NULL;
 }
 
-static inline unsigned int _find_num_icds(DIR *dir) {
-  unsigned int num_icds = 0;
+
+static inline unsigned int _find_num_suffix_match(DIR *dir, const char* suffix) {
+  unsigned int num_matches = 0;
   struct dirent *ent;
   while( (ent=readdir(dir)) != NULL ){
-    if (_string_end_with_icd(ent->d_name)) {
-      num_icds++;
+    if (_string_end_with(ent->d_name, suffix)) {
+      num_matches++;
     }
   }
   rewinddir(dir);
+  return num_matches;
+}
+
+static inline unsigned int _find_num_icds(DIR *dir) {
+  unsigned int num_icds = _find_num_suffix_match(dir, ICD_EXTENSION);
   RETURN(num_icds);
+}
+
+static inline unsigned int _find_num_lays(DIR *dir) {
+  unsigned int num_lays = _find_num_suffix_match(dir, LAY_EXTENSION);
+  RETURN(num_lays);
+}
+
+static int compare_path(const void *a, const void *b)
+{
+      return strcoll(*(const char **)a, *(const char **)b);
 }
 
 static inline unsigned int _load_icd(int num_icds, const char* lib_path) {
@@ -347,19 +357,19 @@ static void _count_devices(struct platform_icd *p) {
   /* Ensure they are 0 in case of errors */
   p->ngpus = p->ncpus = p->ndevs = 0;
 
-  error = p->pid->dispatch->clGetDeviceIDs(p->pid, CL_DEVICE_TYPE_GPU, 0, NULL, &(p->ngpus));
+  error = KHR_ICD2_DISPATCH(p->pid)->clGetDeviceIDs(p->pid, CL_DEVICE_TYPE_GPU, 0, NULL, &(p->ngpus));
   if (error != CL_SUCCESS && error != CL_DEVICE_NOT_FOUND){
     debug(D_WARN, "Error %s while counting GPU devices in platform %p",
 	  _clerror2string(error), p->pid);
   }
 
-  error = p->pid->dispatch->clGetDeviceIDs(p->pid, CL_DEVICE_TYPE_CPU, 0, NULL, &(p->ncpus));
+  error = KHR_ICD2_DISPATCH(p->pid)->clGetDeviceIDs(p->pid, CL_DEVICE_TYPE_CPU, 0, NULL, &(p->ncpus));
   if (error != CL_SUCCESS && error != CL_DEVICE_NOT_FOUND){
     debug(D_WARN, "Error %s while counting CPU devices in platform %p",
 	  _clerror2string(error), p->pid);
   }
 
-  error = p->pid->dispatch->clGetDeviceIDs(p->pid, CL_DEVICE_TYPE_ALL, 0, NULL, &(p->ndevs));
+  error = KHR_ICD2_DISPATCH(p->pid)->clGetDeviceIDs(p->pid, CL_DEVICE_TYPE_ALL, 0, NULL, &(p->ndevs));
   if (error != CL_SUCCESS && error != CL_DEVICE_NOT_FOUND){
     debug(D_WARN, "Error %s while counting ALL devices in platform %p",
 	  _clerror2string(error), p->pid);
@@ -486,6 +496,11 @@ static inline void _find_and_check_platforms(cl_uint num_icds) {
       debug(D_WARN, "Not enough platform allocated. Skipping ICD");
       continue;
     }
+    clIcdGetFunctionAddressForPlatformKHR_fn pltfn_fn_ptr =
+      _get_function_addr(dlh, picd->ext_fn_ptr, "clIcdGetFunctionAddressForPlatformKHR");
+    clIcdSetPlatformDispatchDataKHR_fn spltdd_fn_ptr =
+      _get_function_addr(dlh, picd->ext_fn_ptr, "clIcdSetPlatformDispatchDataKHR");
+
     for(j=0; j<num_platforms; j++) {
       debug(D_LOG, "Checking platform %i", j);
       struct platform_icd *p=&_picds[_num_picds];
@@ -494,13 +509,35 @@ static inline void _find_and_check_platforms(cl_uint num_icds) {
       p->vicd=&_icds[i];
       p->pid=platforms[j];
 
+      if (KHR_ICD2_HAS_TAG(p->pid) && !pltfn_fn_ptr) {
+        debug(D_WARN, "Found icd 2 platform, but it is missing clIcdGetFunctionAddressForPlatformKHR, skipping it");
+        continue;
+      }
+
+      if (KHR_ICD2_HAS_TAG(p->pid) && !spltdd_fn_ptr) {
+        debug(D_WARN, "Found icd 2 platform, but it is missing clIcdSetPlatformDispatchDataKHR, skipping it");
+        continue;
+      }
+
+      if (KHR_ICD2_HAS_TAG(p->pid) && !(((intptr_t)((p->pid)->dispatch->clUnloadCompiler)) == CL_ICD2_TAG_KHR)) {
+        debug(D_WARN, "Found icd 2 platform, but it is missing clUnloadCompiler tag, skipping it");
+        continue;
+      }
+
+      if (KHR_ICD2_HAS_TAG(p->pid))
+      {
+          _populate_dispatch_table(p->pid, pltfn_fn_ptr, &p->disp_data.dispatch);
+          spltdd_fn_ptr(p->pid, &p->disp_data);
+          debug(D_LOG, "Found icd 2 platform, using loader managed dispatch");
+      }
+
       /* If clGetPlatformInfo is not exported and we are here, it
        * means that OCL_ICD_ASSUME_ICD_EXTENSION. Si we try to take it
        * from the dispatch * table. If that fails too, we have to
        * bail.
        */
       if (plt_info_ptr == NULL) {
-        plt_info_ptr = p->pid->dispatch->clGetPlatformInfo;
+        plt_info_ptr = KHR_ICD2_DISPATCH(p->pid)->clGetPlatformInfo;
         if (plt_info_ptr == NULL) {
           debug(D_WARN, "Missing clGetPlatformInfo even in ICD dispatch table, skipping it");
           continue;
@@ -675,13 +712,120 @@ static void __initLayer(char * layer_path) {
     for( i = limit; i <= OCL_ICD_LAST_FUNCTION; i++) {
       ((void **)&(new_layer->dispatch))[i] = ((void **)target_dispatch)[i];
     }
+#ifdef CLLAYERINFO
+  new_layer->library_name = strdup(layer_path);
+  new_layer->layer_info_fn_ptr = clGetLayerInfo_ptr;
+#endif
   } else {
     debug(D_WARN, "Layer: %s could not be loaded", layer_path);
   }
 }
 
+static void __initSystemLayers( void ) {
+  struct stat buf;
+  cl_uint num_lays = 0;
+  int ret;
+  struct dirent *ent;
+  DIR *dir = NULL;
+  const char* opencl_layer_path=getenv("OPENCL_LAYER_PATH");
+  if (! opencl_layer_path || opencl_layer_path[0]==0) {
+    opencl_layer_path=ETC_OPENCL_LAYERS;
+    debug(D_DUMP, "OPENCL_LAYER_PATH unset or empty. Using hard-coded path '%s'", opencl_layer_path);
+  } else {
+    debug(D_DUMP, "OPENCL_LAYER_PATH set to '%s', using it", opencl_layer_path);
+  }
+  debug(D_LOG,"Reading lay list from '%s'", opencl_layer_path);
+
+  ret=stat(opencl_layer_path, &buf);
+  if (ret != 0) {
+    debug(D_WARN, "Cannot stat '%s'. Aborting", opencl_layer_path);
+    return;
+  }
+  if (!S_ISDIR(buf.st_mode)) {
+    debug(D_WARN, "'%s' is not a directory. Aborting", opencl_layer_path);
+    return;
+  }
+  debug(D_LOG,"Reading lay list from '%s'", opencl_layer_path);
+  dir = opendir(opencl_layer_path);
+  if(dir == NULL) {
+    if (errno == ENOTDIR) {
+      debug(D_DUMP, "%s is not a directory. Aborting", opencl_layer_path);
+    }
+    return;
+  }
+
+  num_lays = _find_num_lays(dir);
+  if(num_lays == 0) {
+    return;
+  }
+
+  char **dir_elems = NULL;
+  cl_uint real_num_lays = 0;
+  dir_elems = (char **)malloc(num_lays*sizeof(char *));
+  if(!dir_elems) {
+    return;
+  }
+  while( (ent=readdir(dir)) != NULL && real_num_lays < num_lays){
+    char * lib_path;
+    unsigned int lib_path_length;
+    if (!_string_end_with_lay(ent->d_name)) {
+      continue;
+    }
+    lib_path_length = strlen(opencl_layer_path) + strlen(ent->d_name) + 2;
+    lib_path = malloc(lib_path_length*sizeof(char));
+    if (!lib_path) {
+      free(lib_path);
+      continue;
+    }
+    sprintf(lib_path,"%s/%s", opencl_layer_path, ent->d_name);
+    debug(D_LOG, "Considering file '%s'", lib_path);
+    dir_elems[real_num_lays] = lib_path;
+    real_num_lays++;
+  }
+  qsort(dir_elems, real_num_lays, sizeof(char *), compare_path);
+  for(cl_uint j = 0; j < real_num_lays; j++) {
+    unsigned int lib_path_length;
+    char * err;
+    char * lib_path = dir_elems[j];
+    FILE *f = fopen(lib_path,"r");
+    free(lib_path);
+    if (f==NULL) {
+      continue;
+    }
+    fseek(f, 0, SEEK_END);
+    lib_path_length = ftell(f)+1;
+    fseek(f, 0, SEEK_SET);
+    if(lib_path_length == 1) {
+      debug(D_WARN, "File contents too short, skipping LAY");
+      fclose(f);
+      continue;
+    }
+    lib_path = malloc(lib_path_length*sizeof(char));
+    if (!lib_path) {
+      continue;
+    }
+    err = fgets(lib_path, lib_path_length*sizeof(char), f);
+    if( err == NULL ) {
+      free(lib_path);
+      debug(D_WARN, "Error while loading file contents, skipping LAY");
+      continue;
+    }
+
+    lib_path_length = strnlen(lib_path, lib_path_length);
+
+    if( lib_path[lib_path_length-1] == '\n' )
+      lib_path[lib_path_length-1] = '\0';
+
+    __initLayer(lib_path);
+    free(lib_path);
+  }
+  free(dir_elems);
+}
+
 static void __initLayers( void ) {
-  char* layers_path=getenv("OCL_ICD_LAYERS");
+  __initSystemLayers();
+
+  char* layers_path=getenv("OPENCL_LAYERS");
   if (layers_path) {
     char* layer_path = layers_path;
     char* next_layer_path = strchr(layers_path, ':');
@@ -884,15 +1028,19 @@ getDefaultPlatformID() {
 }
 
 #pragma GCC visibility pop
+#if defined(__APPLE__) || defined(__MACOSX)
+#define hidden_alias(name)
+#else
 #define hidden_alias(name) \
   typeof(name) name##_hid __attribute__ ((alias (#name), visibility("hidden")))
+#endif
 
-typedef enum {
-  CL_ICDL_OCL_VERSION=1,
-  CL_ICDL_VERSION=2,
-  CL_ICDL_NAME=3,
-  CL_ICDL_VENDOR=4,
-} cl_icdl_info;
+typedef cl_uint cl_icdl_info;
+
+#define CL_ICDL_OCL_VERSION 1
+#define CL_ICDL_VERSION     2
+#define CL_ICDL_NAME        3
+#define CL_ICDL_VENDOR      4
 
 static cl_int clGetICDLoaderInfoOCLICD(
   cl_icdl_info     param_name,
@@ -970,7 +1118,7 @@ CL_API_ENTRY void * CL_API_CALL
 clGetExtensionFunctionAddress(const char * func_name) CL_API_SUFFIX__VERSION_1_0 {
   debug_trace();
   _initClIcd();
-  if (__builtin_expect (!!_first_layer, 0))
+  if (_first_layer)
     return _first_layer->dispatch.clGetExtensionFunctionAddress(func_name);
   clGetExtensionFunctionAddress_body
 }
@@ -1012,7 +1160,7 @@ clGetPlatformIDs(cl_uint          num_entries,
                  cl_uint *        num_platforms) CL_API_SUFFIX__VERSION_1_0 {
   debug_trace();
   _initClIcd();
-  if (__builtin_expect (!!_first_layer, 0))
+  if (_first_layer)
     return _first_layer->dispatch.clGetPlatformIDs(num_entries, platforms, num_platforms);
   clGetPlatformIDs_body
 }
@@ -1055,8 +1203,8 @@ hidden_alias(clGetPlatformIDs);
 	    RETURN_WITH_ERRCODE(errcode_ret, CL_INVALID_PLATFORM, NULL); \
           } \
         } \
-        RETURN(((struct _cl_platform_id *) properties[i+1]) \
-          ->dispatch->clCreateContext(properties, num_devices, devices, \
+        RETURN(KHR_ICD2_DISPATCH((struct _cl_platform_id *) properties[i+1]) \
+          ->clCreateContext(properties, num_devices, devices, \
                         pfn_notify, user_data, errcode_ret)); \
       } \
       i += 2; \
@@ -1068,8 +1216,8 @@ hidden_alias(clGetPlatformIDs);
   if((struct _cl_device_id *)devices[0] == NULL) { \
     RETURN_WITH_ERRCODE(errcode_ret, CL_INVALID_DEVICE, NULL); \
   } \
-  RETURN(((struct _cl_device_id *)devices[0]) \
-    ->dispatch->clCreateContext(properties, num_devices, devices, \
+  RETURN(KHR_ICD2_DISPATCH((struct _cl_device_id *)devices[0]) \
+    ->clCreateContext(properties, num_devices, devices, \
                   pfn_notify, user_data, errcode_ret));
 
 
@@ -1092,7 +1240,7 @@ clCreateContext(const cl_context_properties *  properties,
                 cl_int *                       errcode_ret) CL_API_SUFFIX__VERSION_1_0 {
   debug_trace();
   _initClIcd();
-  if (__builtin_expect (!!_first_layer, 0))
+  if (_first_layer)
     return _first_layer->dispatch.clCreateContext(properties,
                                                   num_devices,
                                                   devices,
@@ -1118,15 +1266,15 @@ hidden_alias(clCreateContext);
             goto out; \
           } \
         } \
-        return ((struct _cl_platform_id *) properties[i+1]) \
-          ->dispatch->clCreateContextFromType(properties, device_type, \
+        return KHR_ICD2_DISPATCH((struct _cl_platform_id *) properties[i+1]) \
+          ->clCreateContextFromType(properties, device_type, \
                         pfn_notify, user_data, errcode_ret); \
       } \
       i += 2; \
     } \
   } else { \
     cl_platform_id default_platform=getDefaultPlatformID(); \
-    RETURN(default_platform->dispatch->clCreateContextFromType \
+    RETURN(KHR_ICD2_DISPATCH(default_platform)->clCreateContextFromType \
 	(properties, device_type, pfn_notify, user_data, errcode_ret)); \
   } \
  out: \
@@ -1149,7 +1297,7 @@ clCreateContextFromType(const cl_context_properties *  properties,
                         cl_int *                       errcode_ret) CL_API_SUFFIX__VERSION_1_0 {
   debug_trace();
   _initClIcd();
-  if (__builtin_expect (!!_first_layer, 0))
+  if (_first_layer)
     return _first_layer->dispatch.clCreateContextFromType(properties,
                                                           device_type,
                                                           pfn_notify,
@@ -1171,8 +1319,8 @@ hidden_alias(clCreateContextFromType);
 	    RETURN(CL_INVALID_PLATFORM); \
           } \
         } \
-        RETURN(((struct _cl_platform_id *) properties[i+1]) \
-	  ->dispatch->clGetGLContextInfoKHR(properties, param_name, \
+        RETURN(KHR_ICD2_DISPATCH((struct _cl_platform_id *) properties[i+1]) \
+	  ->clGetGLContextInfoKHR(properties, param_name, \
                         param_value_size, param_value, param_value_size_ret)); \
       } \
       i += 2; \
@@ -1197,7 +1345,7 @@ clGetGLContextInfoKHR(const cl_context_properties *  properties,
                       size_t *                       param_value_size_ret) CL_API_SUFFIX__VERSION_1_0 {
   debug_trace();
   _initClIcd();
-  if (__builtin_expect (!!_first_layer, 0))
+  if (_first_layer)
     return _first_layer->dispatch.clGetGLContextInfoKHR(properties,
                                                         param_name,
                                                         param_value_size,
@@ -1212,8 +1360,8 @@ hidden_alias(clGetGLContextInfoKHR);
     RETURN(CL_INVALID_VALUE); \
   if( (struct _cl_event *)event_list[0] == NULL ) \
     RETURN(CL_INVALID_EVENT); \
-  RETURN(((struct _cl_event *)event_list[0]) \
-    ->dispatch->clWaitForEvents(num_events, event_list));
+  RETURN(KHR_ICD2_DISPATCH((struct _cl_event *)event_list[0]) \
+    ->clWaitForEvents(num_events, event_list));
 
 __attribute__ ((visibility ("hidden"))) cl_int
 clWaitForEvents_disp(cl_uint              num_events,
@@ -1225,7 +1373,7 @@ CL_API_ENTRY cl_int CL_API_CALL
 clWaitForEvents(cl_uint              num_events,
                 const cl_event *     event_list) CL_API_SUFFIX__VERSION_1_0 {
   debug_trace();
-  if (__builtin_expect (!!_first_layer, 0))
+  if (_first_layer)
     return _first_layer->dispatch.clWaitForEvents(num_events,
                                                   event_list);
   clWaitForEvents_body
@@ -1243,7 +1391,7 @@ clUnloadCompiler_disp(void) {
 CL_API_ENTRY cl_int CL_API_CALL
 clUnloadCompiler(void) CL_API_SUFFIX__VERSION_1_0 {
   debug_trace();
-  if (__builtin_expect (!!_first_layer, 0))
+  if (_first_layer)
     return _first_layer->dispatch.clUnloadCompiler();
   clUnloadCompiler_body
 }
