@@ -15,7 +15,7 @@ libOpenCL, libOpenCL.so - OCL-ICD implementation of OpenCL ICD loader
 DESCRIPTION
 -----------
 `libOpenCL.so` is the library linked by OpenCL programs. It does not contains
-any OpenCL implementation itself, but merly act as a dispatcher to real OpenCL
+any OpenCL implementation itself, but merely act as a dispatcher to real OpenCL
 implementations provided as OpenCL Installable Client Driver (ICD).
 An ICD loader should be able to load ICDs provided by any vendors.
 
@@ -67,9 +67,13 @@ b. else, if *$OCL_ICD_VENDORS* ends with '`.icd`', libOpenCL.so will only load
 c. else libOpenCL.so will try to load *$OCL_ICD_VENDORS* as the ICD shared
   library itself (i.e. to load it directly with **dlopen**(3)).
 
-*OCL_ICD_LAYERS*::
+*OPENCL_LAYERS*::
 This variable allows one to specify a colon separated list of layers to load,
-specifying their path. This support is experimental.
+specifying their path.
+
+*OPENCL_LAYER_PATH*::
+This variable allows one to override the default system layer search path
+('`@OCL_ICD_LAYERDIR@`').
 
 *OCL_ICD_ASSUME_ICD_EXTENSION*::
 If set to an non-empty value, contrary the Khronos specification, the

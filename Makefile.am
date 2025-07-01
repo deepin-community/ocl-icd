@@ -42,7 +42,9 @@ stamp-generator: icd_generator.rb
 # ignore the warning in OpenCL headers when using old interface
 libOpenCL_la_CFLAGS= $(NO_DEPRECATED_DECLARATIONS_FLAGS) \
 	$(AM_CFLAGS) $(PTHREAD_CFLAGS) \
-	-DETC_OPENCL_VENDORS=\"@OCL_ICD_VENDORDIR@\"
+	-DCL_NO_NON_ICD_DISPATCH_EXTENSION_PROTOTYPES \
+	-DETC_OPENCL_VENDORS=\"@OCL_ICD_VENDORDIR@\" \
+	-DETC_OPENCL_LAYERS=\"@OCL_ICD_LAYERDIR@\"
 
 libOpenCL_la_SOURCES = ocl_icd_loader.c ocl_icd_loader.h ocl_icd_debug.h
 nodist_libOpenCL_la_SOURCES = ocl_icd_loader_gen.c ocl_icd.h
@@ -52,6 +54,15 @@ if USE_MAP
 libOpenCL_la_LDFLAGS += -Wl,--version-script,ocl_icd_loader_gen.map
 libOpenCL_la_DEPENDS = ocl_icd_loader_gen.map
 endif
+
+####################################
+# A utility to list loaded layers
+bin_PROGRAMS = cllayerinfo
+
+cllayerinfo_SOURCES = cllayerinfo.c $(libOpenCL_la_SOURCES)
+nodist_cllayerinfo_SOURCES = $(nodist_libOpenCL_la_SOURCES)
+cllayerinfo_CFLAGS = -DCLLAYERINFO $(libOpenCL_la_CFLAGS)
+cllayerinfo_LDFLAGS = $(PTHREAD_CFLAGS) $(PTHREAD_LIBS)
 
 ####################################
 # A very small program test
@@ -100,14 +111,17 @@ install-exec-hook::
 	$(RM) -r $(DESTDIR)$(pkglibdir)
 libdummycl_la_SOURCES = libdummy_icd.c libdummy_icd.h
 nodist_libdummycl_la_SOURCES = libdummy_icd_gen.c libdummy_icd_gen.h
+libdummycl_la_LDFLAGS = -module
 libdummycl_noext_la_SOURCES = $(libdummycl_la_SOURCES)
 nodist_libdummycl_noext_la_SOURCES = $(nodist_libdummycl_la_SOURCES)
+libdummycl_noext_la_LDFLAGS = -module
 libdummycl_noext_la_CPPFLAGS = $(AM_CPPFLAGS) -DICD_WITHOUT_EXTENSION
 libdummycl2_la_SOURCES = $(libdummycl_la_SOURCES)
 nodist_libdummycl2_la_SOURCES = $(nodist_libdummycl_la_SOURCES)
+libdummycl2_la_LDFLAGS = -module
 libdummycl2_la_CPPFLAGS = $(AM_CPPFLAGS) -DICD_SUFFIX=\"2\"
-libdummylayer_la_SOURCES = ocl_icd_layer.h
 nodist_libdummylayer_la_SOURCES = dummy_icd_layer_gen.c
+libdummylayer_la_LDFLAGS = -module
 
 noinst_PROGRAMS=run_dummy_icd_through_our_ICDL
 run_dummy_icd_through_our_ICDL_SOURCES = run_dummy_icd.c

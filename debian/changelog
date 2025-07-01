@@ -1,3 +1,40 @@
+ocl-icd (2.3.3-1) unstable; urgency=medium
+
+  * Team upload.
+  * New upstream release.
+  * Update d/copyright.
+  * Bump Standards-Version to 4.7.2 (no changes needed).
+
+ -- Andreas Beckmann <anbe@debian.org>  Sun, 06 Apr 2025 01:34:39 +0200
+
+ocl-icd (2.3.2-1) unstable; urgency=medium
+
+  * Team upload.
+  * New upstream release.
+  * Bump Standards-Version to 4.6.2 (no changes needed).
+  * Drop ancient NEWS.
+
+ -- Andreas Beckmann <anbe@debian.org>  Wed, 14 Jun 2023 16:46:19 +0200
+
+ocl-icd (2.3.1-1) unstable; urgency=medium
+
+  [ Andreas Beckmann ]
+  * Team upload.
+  * New upstream release.
+  * Update watch file.
+  * Bump Standards-Version to 4.6.1 (no changes needed).
+  * Fix building twice in a row.
+
+  [ Debian Janitor ]
+  * Set upstream metadata fields: Bug-Database, Bug-Submit, Repository,
+    Repository-Browse.
+  * Remove constraints unnecessary since buster:
+    + Build-Depends: Drop versioned constraint on autoconf and dpkg-dev.
+    + ocl-icd-opencl-dev: Drop versioned constraint on nvidia-libopencl1 and
+      ocl-icd-libopencl1 in Breaks+Replaces.
+
+ -- Andreas Beckmann <anbe@debian.org>  Wed, 05 Oct 2022 14:56:19 +0200
+
 ocl-icd (2.2.14-3) unstable; urgency=medium
 
   * Team upload.
