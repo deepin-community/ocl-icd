@@ -1,3 +1,9 @@
+ocl-icd (2.3.3-2) unstable; urgency=medium
+
+  * Rebuild with LTO enabled (dpkg vendor feature optimize/lto).
+
+ -- tunaichao <tunaichao@uniontech.com>  Thu, 10 Sep 2026 19:46:56 +0800
+
 ocl-icd (2.3.3-1) unstable; urgency=medium
 
   * Team upload.
